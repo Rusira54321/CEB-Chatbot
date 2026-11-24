@@ -1,0 +1,26 @@
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local Persistent ChromaDB
+chroma_db/
+
+# Executables
+powershell.exe
+*.exe
+
+# Environment / Secret variables
+.env
+
+# Editor settings
+.vscode/
+.idea/
+scraped_content.html
+scraped_content.txt
