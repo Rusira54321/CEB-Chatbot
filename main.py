@@ -1,117 +1,107 @@
 """
 Complete Pipeline Runner
 ------------------------
-1. Scrapes webpage body content cleanly (removes header/footer/hidden tags).
-2. Generates semantic embeddings with BAAI/bge-m3.
-3. Persists documents, embeddings, and metadata into a local ChromaDB database.
-4. Demonstrates a semantic search query against the persistent vector database.
+1. Loads 13 hydro power plant chunks from chunks.py
+2. Generates semantic embeddings (Title + Content) with BAAI/bge-m3.
+3. Persists all chunks with metadata into persistent ChromaDB.
+4. Demonstrates semantic search query against stored chunks.
 """
 
-import uuid
+from chunks import all_chunks
 from Embedding import EmbeddingService
-from scraper import scrape_webpage_body
 from vector_store import ChromaVectorStore
 
 
 def main() -> None:
+    source_url = "https://www.ceb.lk/plant-operation/en"
+
     # ---------------------------------------------------------
-    # 1. Target URL to Scrape
+    # STEP 1: Prepare Documents and Metadata from Chunks
     # ---------------------------------------------------------
-    url = "https://www.ceb.lk/ceb-history/en"
-
     print("=" * 65)
-    print(f"STEP 1: Scraping Body Content from: {url}")
+    print(f"STEP 1: Preparing {len(all_chunks)} Chunks for Ingestion")
     print("=" * 65)
 
-    try:
-        # Scrape clean text without headers, footers, or hidden debug elements
-        text_content = scrape_webpage_body(url, as_text=True)
-        print(f"Extracted clean text length: {len(text_content)} characters\n")
+    # Combine Title + Content together for stronger semantic embeddings.
+    # Example output: "Kotmale Complex\n\nKotmale reservoir is located..."
+    documents = [f"{c['title']}\n\n{c['content']}" for c in all_chunks]
 
-        # Save to local text file for reference
-        output_txt = "scraped_content.txt"
-        with open(output_txt, "w", encoding="utf-8") as f:
-            f.write(text_content)
-        print(f"Saved text to: {output_txt}\n")
-
-        # ---------------------------------------------------------
-        # 2. Generate Vector Embeddings (BAAI/bge-m3)
-        # ---------------------------------------------------------
-        print("=" * 65)
-        print("STEP 2: Generating Vector Embeddings with BAAI/bge-m3...")
-        print("=" * 65)
-        embedding_service = EmbeddingService()
-        embeddings = embedding_service.encode(text=text_content)
-        print(f"Generated Embedding shape: {embeddings.shape} (1024 dimensions)\n")
-        
-        # 3. Store in Persistent ChromaDB
-        # ---------------------------------------------------------
-        print("=" * 65)
-        print("STEP 3: Storing in Persistent ChromaDB...")
-        print("=" * 65)
-        
-        # Initialize persistent Chroma store (data saved to ./chroma_db)
-        vector_store = ChromaVectorStore(
-            persist_directory="./chroma_db",
-            collection_name="ceb_knowledge_base"
-        )
-        
-        # Generate a random, unique document ID (UUIDv4)
-        doc_id = str(uuid.uuid4())
-        print(f"Generated Random Document ID: {doc_id}")
-        metadata = {
-            "source": url,
-            "section": "History Of Electricity in Sri Lanka",
-            "language":"en"
+    # Attach metadata with source URL, title, category, and language
+    metadatas = [
+        {
+            "source": source_url,
+            "title": c["title"],
+            "category": "hydro_power_plants",
+            "language": "en"
         }
+        for c in all_chunks
+    ]
 
-        vector_store.add_document(
-            doc_id=doc_id,
-            document=text_content,
-            embedding=embeddings,
-            metadata=metadata
-        )
-        
-        print(f"Document successfully stored and persisted!")
-        print(f"Total documents in ChromaDB: {vector_store.count()}\n")
+    # Clean, readable unique IDs for each chunk (e.g. hydro_chunk_1 ... hydro_chunk_13)
+    doc_ids = [f"hydro_chunk_{i + 1}" for i in range(len(all_chunks))]
 
-        """
-        # ---------------------------------------------------------
-        # 4. Verify: Semantic Search Query against ChromaDB
-        # ---------------------------------------------------------
-        print("=" * 65)
-        print("STEP 4: Testing Semantic Search against Persistent ChromaDB")
-        print("=" * 65)
+    print(f"Prepared {len(documents)} documents with metadata.")
 
-        test_query = "When was the Ceylon Electricity Board established by parliament?"
-        print(f"User Query: '{test_query}'")
-        
-        # Embed the query with the same model
-        query_vector = embedding_service.encode(text=test_query)
+    # ---------------------------------------------------------
+    # STEP 2: Generate Vector Embeddings (Batch of 13 chunks)
+    # ---------------------------------------------------------
+    print("\n" + "=" * 65)
+    print("STEP 2: Generating Embeddings with BAAI/bge-m3...")
+    print("=" * 65)
 
-        # Query ChromaDB
-        results = vector_store.query(query_embedding=query_vector, n_results=1)
-        
-        print("\n--- Search Results from ChromaDB ---")
-        if results and results.get("documents") and results["documents"][0]:
-            retrieved_doc = results["documents"][0][0]
-            retrieved_meta = results["metadatas"][0][0]
-            distance = results["distances"][0][0]
+    embedding_service = EmbeddingService()
+    embeddings = embedding_service.encode(text=documents)
+    print(f"Generated Embeddings Shape: {embeddings.shape}")
+    # Expected shape: (13, 1024) → 13 chunks, each with 1024-dim vector
 
-            print(f"Matched ID: {results['ids'][0][0]}")
-            print(f"Distance (Cosine): {distance:.4f} (Lower distance = stronger match)")
-            print(f"Metadata: {retrieved_meta}")
-            print(f"Matched Text (first 250 chars):\n{retrieved_doc[:250]}...")
-        else:
-            print("No matching documents found.")
-        
-        print("\n" + "=" * 65)
-        print("SUCCESS: End-to-end pipeline completed!")
-        print("Data is safely persisted in the './chroma_db' folder.")
-        print("=" * 65)
-        """
-    except Exception as error:
-        print(f"An error occurred in the pipeline: {error}")
+    # ---------------------------------------------------------
+    # STEP 3: Store in Persistent ChromaDB
+    # ---------------------------------------------------------
+    print("\n" + "=" * 65)
+    print("STEP 3: Storing Chunks in Persistent ChromaDB...")
+    print("=" * 65)
+
+    vector_store = ChromaVectorStore(
+        persist_directory="./chroma_db",
+        collection_name="ceb_knowledge_base"
+    )
+
+    vector_store.add_documents(
+        doc_ids=doc_ids,
+        documents=documents,
+        embeddings=embeddings,
+        metadatas=metadatas
+    )
+
+    print(f"Successfully stored all {len(all_chunks)} chunks!")
+    print(f"Total documents in ChromaDB collection: {vector_store.count()}")
+
+    # ---------------------------------------------------------
+    # STEP 4: Test Semantic Search against Stored Chunks
+    # ---------------------------------------------------------
+    print("\n" + "=" * 65)
+    print("STEP 4: Testing Semantic Search against Stored Chunks")
+    print("=" * 65)
+
+    test_query = "What is the capacity of Kotmale power station?"
+    print(f"User Query: '{test_query}'")
+
+    # Embed the query using the same model for a fair comparison
+    query_vector = embedding_service.encode(text=test_query)
+    results = vector_store.query(query_embedding=query_vector, n_results=1)
+
+    print("\n--- Best Matching Chunk Found ---")
+    matched_title = results["metadatas"][0][0]["title"]
+    matched_text = results["documents"][0][0]
+    matched_source = results["metadatas"][0][0]["source"]
+
+    print(f"Title  : {matched_title}")
+    print(f"Source : {matched_source}")
+    print(f"\nContent:\n{matched_text}")
+
+    print("\n" + "=" * 65)
+    print("SUCCESS: Pipeline completed! Data persisted in ./chroma_db")
+    print("=" * 65)
 
 
 if __name__ == "__main__":
