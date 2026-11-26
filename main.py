@@ -7,38 +7,46 @@ Complete Pipeline Runner
 4. Demonstrates semantic search query against stored chunks.
 """
 
+import re
+
 from chunks import all_chunks
 from Embedding import EmbeddingService
 from vector_store import ChromaVectorStore
 
 
 def main() -> None:
-    source_url = "https://www.ceb.lk/plant-operation/en"
+    source_url = "https://www.ceb.lk/demand-side-management/en"
 
     # ---------------------------------------------------------
     # STEP 1: Prepare Documents and Metadata from Chunks
     # ---------------------------------------------------------
+    
     print("=" * 65)
     print(f"STEP 1: Preparing {len(all_chunks)} Chunks for Ingestion")
     print("=" * 65)
 
     # Combine Title + Content together for stronger semantic embeddings.
-    # Example output: "Kotmale Complex\n\nKotmale reservoir is located..."
-    documents = [f"{c['title']}\n\n{c['content']}" for c in all_chunks]
+    # .strip()          → removes leading/trailing whitespace from content
+    # re.sub(r'[ \t]+') → collapses multiple internal spaces/tabs into one space
+    # Result: clean text with no noise spaces sent to the embedding model
+    documents = [
+        f"{c['title']}\n\n{re.sub(r'[ \t]+', ' ', c['content'].strip())}"
+        for c in all_chunks
+    ]
 
     # Attach metadata with source URL, title, category, and language
     metadatas = [
         {
             "source": source_url,
             "title": c["title"],
-            "category": "hydro_power_plants",
+            "category": "demand_side_management",
             "language": "en"
         }
         for c in all_chunks
     ]
 
-    # Clean, readable unique IDs for each chunk (e.g. hydro_chunk_1 ... hydro_chunk_13)
-    doc_ids = [f"hydro_chunk_{i + 1}" for i in range(len(all_chunks))]
+    # Clean, readable unique IDs for each chunk (e.g. dsm_chunk_1 ... dsm_chunk_10)
+    doc_ids = [f"dsm_chunk_{i + 1}" for i in range(len(all_chunks))]
 
     print(f"Prepared {len(documents)} documents with metadata.")
 
@@ -83,11 +91,16 @@ def main() -> None:
     print("STEP 4: Testing Semantic Search against Stored Chunks")
     print("=" * 65)
 
-    test_query = "What is the capacity of Kotmale power station?"
+    test_query = "What is demand side management"
     print(f"User Query: '{test_query}'")
 
     # Embed the query using the same model for a fair comparison
+    embedding_service = EmbeddingService()
     query_vector = embedding_service.encode(text=test_query)
+    vector_store = ChromaVectorStore(
+            persist_directory="./chroma_db",
+            collection_name="ceb_knowledge_base"
+        )
     results = vector_store.query(query_embedding=query_vector, n_results=1)
 
     print("\n--- Best Matching Chunk Found ---")
